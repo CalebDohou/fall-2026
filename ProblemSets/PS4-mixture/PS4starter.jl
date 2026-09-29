@@ -2,7 +2,7 @@
 # ECON 6343: Econometrics III
 # Multinomial and Mixed Logit Estimation
 
-using Random, LinearAlgebra, Statistics, Optim, DataFrames, CSV, HTTP, GLM, FreqTables, Distributions
+using ForwardDiff, Random, LinearAlgebra, Statistics, Optim, DataFrames, CSV, HTTP, GLM, FreqTables, Distributions, ForwardDiff
 
 # Include quadrature function (make sure lgwt.jl is in your working directory)
 include("lgwt.jl")
@@ -11,7 +11,7 @@ include("lgwt.jl")
 # Data Loading Function
 #---------------------------------------------------
 function load_data()
-    url = "https://raw.githubusercontent.com/OU-PhD-Econometrics/fall-2024/master/ProblemSets/PS4-mixture/nlsw88t.csv"
+    url = "https://raw.githubusercontent.com/OU-PhD-Econometrics/fall-2026/master/ProblemSets/PS4-mixture/nlsw88t.csv"
     df = CSV.read(HTTP.get(url).body, DataFrame)
     X = [df.age df.white df.collgrad]
     Z = hcat(df.elnwage1, df.elnwage2, df.elnwage3, df.elnwage4, 
@@ -283,13 +283,18 @@ function optimize_mlogit(X, Z, y)
     startvals = [2*rand(K*(J-1)).-1; 0.1]
     
     # TODO: Use optimize() function with automatic differentiation
-    # Hint: Use LBFGS() algorithm with autodiff = :forward
-    result = optimize(theta -> mlogit_with_Z(theta, X, Z, y),
-                     startvals, LBFGS(), 
-                     Optim.Options(g_tol = 1e-5, iterations=100_000, show_trace=true);
-                     autodiff = :forward)
+    # Hint: Use LBFGS() algorithm with autodiff = Optim.ADTypes.AutoForwardDiff()
+    # initialize the twice differentiable object
+    td = TwiceDifferentiable(theta -> mlogit_with_Z(theta, X, Z, y),
+                             startvals, autodiff = Optim.ADTypes.AutoForwardDiff())
     
-    return result.minimizer
+    result = optimize(td, startvals, LBFGS(), 
+                     Optim.Options(g_tol = 1e-5, iterations=100_000, show_trace=true))
+        
+    # evaluate the Hessian at the estimates
+    H  = Optim.hessian!(td, result.minimizer)
+    result_se = sqrt.(diag(inv(H)))
+    return result.minimizer, result_se
 end
 
 function optimize_mixed_logit_quad(X, Z, y)
@@ -307,7 +312,7 @@ function optimize_mixed_logit_quad(X, Z, y)
     # result = optimize(theta -> mixed_logit_quad(theta, X, Z, y, nodes, weights),
     #                  startvals, LBFGS(),
     #                  Optim.Options(g_tol = 1e-5, iterations=100_000, show_trace=true);
-    #                  autodiff = :forward)
+    #                  autodiff = Optim.ADTypes.AutoForwardDiff())
     
     println("Mixed logit quadrature optimization setup complete (not executed)")
     return startvals  # Return starting values instead of running
@@ -326,7 +331,7 @@ function optimize_mixed_logit_mc(X, Z, y)
     # result = optimize(theta -> mixed_logit_mc(theta, X, Z, y, D),
     #                  startvals, LBFGS(),
     #                  Optim.Options(g_tol = 1e-5, iterations=100_000, show_trace=true);
-    #                  autodiff = :forward)
+    #                  autodiff = Optim.ADTypes.AutoForwardDiff())
     
     println("Mixed logit Monte Carlo optimization setup complete (not executed)")
     return startvals  # Return starting values instead of running
