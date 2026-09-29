@@ -284,12 +284,17 @@ function optimize_mlogit(X, Z, y)
     
     # TODO: Use optimize() function with automatic differentiation
     # Hint: Use LBFGS() algorithm with autodiff = Optim.ADTypes.AutoForwardDiff()
-    result = optimize(theta -> mlogit_with_Z(theta, X, Z, y),
-                     startvals, LBFGS(), 
-                     Optim.Options(g_tol = 1e-5, iterations=100_000, show_trace=true);
-                     autodiff = Optim.ADTypes.AutoForwardDiff())
+    # initialize the twice differentiable object
+    td = TwiceDifferentiable(theta -> mlogit_with_Z(theta, X, Z, y),
+                             startvals, autodiff = Optim.ADTypes.AutoForwardDiff())
     
-    return result.minimizer
+    result = optimize(td, startvals, LBFGS(), 
+                     Optim.Options(g_tol = 1e-5, iterations=100_000, show_trace=true))
+        
+    # evaluate the Hessian at the estimates
+    H  = Optim.hessian!(td, result.minimizer)
+    result_se = sqrt.(diag(inv(H)))
+    return result.minimizer, result_se
 end
 
 function optimize_mixed_logit_quad(X, Z, y)
