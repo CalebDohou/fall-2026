@@ -65,13 +65,15 @@ In this problem set, we will repeat the estimation of the simplified version of 
     \item Time period$^2$
 \end{itemize}
 
-\textbf{Hint:} ``Fully interacted'' means that all terms from 1st order to 7th order (e.g. Odometer$^2 \times$ RouteUsage$^2 \times$ Branded $\times$ time$^2$.
+\textbf{Hint:} ``Fully interacted'' means that all terms from 1st order to 7th order are included (e.g. Odometer$^2 \times$ RouteUsage$^2 \times$ Branded $\times$ time$^2$). With 7 variables, this gives $2^7 = 128$ terms (including the intercept).
 
-\textbf{Hint:} Julia's \texttt{GLM} package allows you to easily accomplish this by specifying the interacted variables with asterisks in between them. e.g. \texttt{Odometer * RouteUsage} estimates a model that includes Odometer, Route Usage and the product of the two.
+\textbf{Hint:} Julia's \texttt{GLM} package allows you to easily accomplish this by specifying the interacted variables with asterisks in between them. e.g. \texttt{Odometer * RouteUsage} estimates a model that includes Odometer, Route Usage and the product of the two. Note that \texttt{Odometer * Odometer} does \emph{not} create Odometer$^2$. Instead, write the squared terms inside the GLM formula, e.g.\ \texttt{Odometer\^{}2}. That way, when you need to get predicted probabilities at new state values (see Q3 below), they will be appropriately updated throughout the data frame.
+
+\textbf{Hint:} Some of the 128 terms are perfectly collinear in this data, and \texttt{GLM} will drop them. This is perfectly fine.
 \end{enumerate}
 
 \subsubsection*{Dynamic estimation with CCPs}
-We will use the flexible logit parameters to generate CCPs which we can use to compute the future value term as alternative to the backwards recursion we did in PS5.
+We will use the flexible logit parameters to generate CCPs which we can use to compute the future value term as an alternative to the backwards recursion we did in PS5.
 
 Recall the model from PS5, where the differenced conditional value function for running the bus (relative to replacing it) was
 \begin{align}\label{eq:condv}
@@ -79,7 +81,7 @@ Recall the model from PS5, where the differenced conditional value function for 
 \end{align}
 and where $V_{t+1}$ is the value function and the integral is over transitions in the mileage states $x_{t}$.
 
-By exploiting the renewal property of the decision property, we can express $V_{t+1}$ instead as $v_{0t+1} - \log p_{0t+1}$. And since $v_{0t+1}$ corresponds to the renewal action, we know that it is equivalent to 
+By exploiting the renewal property of the replacement decision, we can express $V_{t+1}$ instead as $v_{0t+1} - \log p_{0t+1}$ (plus Euler's constant, which differences out). And since $v_{0t+1}$ corresponds to the renewal action, we know that it is equivalent to 
 
 Thus, our value function formulation can be simplified to
 \begin{align}\label{eq:condvccp}
@@ -105,7 +107,7 @@ where the $f_j$'s are defined identically as in PS5.
             \item First, create a data frame that has four variables:
             \begin{itemize}
                 \item Odometer reading (equals \texttt{kron(ones(zbin),xval)})
-                \item Route usage (equals \texttt{kron(ones(xbin),zval)})
+                \item Route usage (equals \texttt{kron(zval,ones(xbin))})
                 \item Branded (equals 0s of the same size as Odometer and Route usage)
                 \item time (equals 0s of the same size as Branded)
             \end{itemize}
@@ -124,7 +126,7 @@ where the $f_j$'s are defined identically as in PS5.
                 \item Compute \texttt{p0} using the \texttt{predict()} function applied to your updated data frame and the flexible logit estimates
                 \item Store in the FV array the value of $-\beta \log p_0$. Remember that every row of the data frame corresponds to the rows in the state transition matrix, so you can vectorize this calculation.
             \end{itemize}
-            \item Now multiply the state transitions by the future value term. This requires writing another for loop that goes over the rows in the original data frame (the one that you read in at the very beginning of this problem set). In other words, loop over \texttt{i} and \texttt{t}. To get the actual rows of the state transition matrix (since we don't need to use all possible rows), you should re-use the similar code from PS5; something like this:
+            \item Now multiply the state transitions by the future value term. This requires writing another for loop that goes over the rows in the original data frame (the one that you read in at the very beginning of this problem set). In other words, loop over \texttt{i} and \texttt{t}. To get the actual rows of the state transition matrix (since we don't need to use all possible rows), you should re-use similar code from PS5; something like this:
                 \begin{minted}[bgcolor=bg]{julia}
 FVT1[i,t] = (xtran[row1,:].-xtran[row0,:])'*
             FV[row0:row0+xbin-1,B[i]+1,t+1]
@@ -135,8 +137,8 @@ FVT1[i,t] = (xtran[row1,:].-xtran[row0,:])'*
         
         \item \textbf{Estimate the structural parameters.}
         \begin{itemize}
-            \item Add the output of your future value function as a new column in the original ``long panel'' data frame. The easiest way to do this is \texttt{df\_long = @transform(df\_long, fv = fvt1)}
-            \item Now use the \texttt{GLM} package to estimate the structural model. Make use of the ``offset'' function to add the future value term as another regressor whose coefficient is restricted to be 1. That is:
+            \item Add the output of your future value function as a new column in the original ``long panel'' data frame. The easiest way to do this is \texttt{df\_long = @transform(df\_long, :fv = fvt1)}
+            \item Now use the \texttt{GLM} package to estimate the structural model. Make use of the ``offset'' keyword argument to add the future value term as another regressor whose coefficient is restricted to be 1. That is:
             \begin{minted}[bgcolor=bg]{julia}
 theta_hat_ccp_glm = glm(@formula(Y ~ Odometer + Branded), 
                     df_long, Binomial(), LogitLink(), 
