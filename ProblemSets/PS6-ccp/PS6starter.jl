@@ -31,11 +31,15 @@ Load the bus data from PS5 and reshape to long panel format.
 
 # Returns
 - `df_long::DataFrame`: Long panel format with columns for bus ID, time, and decision variables
+- `Xstate::Matrix`: Discretized mileage state, N rows * T columns (wide format, needed in Q3)
+- `Zstate::Vector`: Discretized route usage state, length N
+- `Branded::Vector`: Branded indicator, length N
 
 # TODO:
 - Read in the CSV data
 - Reshape from wide to long format
 - Ensure you have the necessary variables: bus ID, time period, Odometer, RouteUsage, Branded, Y (decision)
+- Also pull out the discretized state variables in wide format (same as in PS5)
 """
 function load_and_reshape_data(url::String)
     # TODO: Implement data loading
@@ -44,8 +48,12 @@ function load_and_reshape_data(url::String)
     # TODO: Reshape to long format
     # Hint: You may need to use stack() or similar reshaping functions
     # Each row should represent one bus-time period observation
+    # Make sure df_long is sorted by bus, then time (Q3 relies on this ordering)
     
-    return df_long
+    # TODO: Extract Xstate, Zstate, and Branded in wide format
+    # Hint: look at how PS5 built these from the Xst* and Zst columns
+    
+    return df_long, Xstate, Zstate, Branded
 end
 
 
@@ -71,10 +79,15 @@ Estimate a flexible logit model with fully interacted terms up to 7th order.
 """
 function estimate_flexible_logit(df::DataFrame)
     # TODO: Create squared terms
+    # Hint: @formula accepts transformations directly, e.g. @formula(y ~ x + x^2).
+    # We want to use the polynomials instead of hard-coded "squared" terms so that
+    # prediction of the CCPs will correctly apply these nonlinear terms.
+    # 
+    # Nonetheless, if we wanted to create these squared terms, we could do it 'brute force':
     # df = @transform(df, 
-    #     Odometer_sq = ...,
-    #     RouteUsage_sq = ...,
-    #     time_sq = ...
+    #     :Odometer_sq = ...,
+    #     :RouteUsage_sq = ...,
+    #     :time_sq = ...
     # )
     
     # TODO: Estimate the flexible logit
@@ -106,7 +119,9 @@ Construct the state space grid for all possible states.
 
 # TODO:
 - Create vectors using kron(ones(zbin), xval) for Odometer
-- Create vectors using kron(ones(xbin), zval) for RouteUsage
+- Create vectors using kron(zval, ones(xbin)) for RouteUsage
+- Check: row k of state_df must describe the same (mileage, route usage) state
+  as row k of xtran (look at how create_grids() fills xtran)
 - Initialize Branded and time to zeros
 """
 function construct_state_space(xbin::Int, zbin::Int, xval::Vector, zval::Vector)
@@ -151,10 +166,10 @@ Compute future value terms using CCPs from the flexible logit.
 - Loop over brand states b ∈ {0,1}
 - Update state_df with current t and b values
 - Use predict() to get p0 (probability of replacement)
-- Store -β * log(p0) in FV[:, b+1, t+1]
+- Store -β * log(p0) in FV[:, b+1, t]
 """
 function compute_future_values(state_df::DataFrame, 
-                                flex_logit::GeneralizedLinearModel,
+                                flex_logit,
                                 xtran::Matrix, 
                                 xbin::Int, 
                                 T::Int, 
@@ -180,9 +195,10 @@ end
     compute_fvt1(df_long::DataFrame, 
                  FV::Array{Float64,3},
                  xtran::Matrix,
-                 Xstate::Vector,
+                 Xstate::Matrix,
                  Zstate::Vector,
-                 xbin::Int)
+                 xbin::Int,
+                 B::Vector)
 
 Map future values from state space to actual data.
 
@@ -190,9 +206,10 @@ Map future values from state space to actual data.
 - `df_long::DataFrame`: Original long data frame
 - `FV::Array{Float64,3}`: Future value array
 - `xtran::Matrix`: State transition matrix
-- `Xstate::Vector`: Mileage state for each observation
-- `Zstate::Vector`: Route usage state for each observation  
+- `Xstate::Matrix`: Mileage state for each bus-year observation
+- `Zstate::Vector`: Route usage state for each bus  
 - `xbin::Int`: Number of mileage bins
+- `B::Vector`: Branded indicator for each bus
 
 # Returns
 - `FVT1::Vector`: Future value term for each observation in long format
@@ -200,20 +217,22 @@ Map future values from state space to actual data.
 # TODO:
 - Initialize FVT1 matrix to store results
 - Loop over observations i and time periods t
-- Compute row indices in xtran based on Xstate[i] and Zstate[i]
+- Compute row indices in xtran based on Xstate[i,t] and Zstate[i]
+  (these are the same row0/row1 you used in the PS5 likelihood)
 - Calculate FVT1[i,t] = (xtran[row1,:] - xtran[row0,:])'* FV[row0:row0+xbin-1, B[i]+1, t+1]
 - Convert to long format vector
 """
 function compute_fvt1(df_long::DataFrame, 
                       FV::Array{Float64,3},
                       xtran::Matrix,
-                      Xstate::Vector,
+                      Xstate::Matrix,
                       Zstate::Vector,
-                      xbin::Int)
+                      xbin::Int,
+                      B::Vector)
     
     # Get dimensions
     N = length(unique(df_long.bus_id))  # Adjust column name as needed
-    T = # TODO: determine T from data
+    # T = ...  # TODO: determine T from data (don't hardcode 20)
     
     # TODO: Initialize FVT1
     # FVT1 = zeros(N, T)
@@ -221,9 +240,9 @@ function compute_fvt1(df_long::DataFrame,
     # TODO: Loop over observations and time
     # for i in 1:N
     #     for t in 1:T
-    #         # Compute row0 and row1 indices
-    #         # row0 = (Xstate[i]-1)*zbin + Zstate[i]
-    #         # row1 = (Xstate[i])*zbin + Zstate[i]
+    #         # Compute row0 and row1 indices (see PS5)
+    #         # row0 = [row of xtran for bus i's route usage with mileage reset to 0]
+    #         # row1 = [row of xtran for bus i's route usage with mileage at Xstate[i,t]]
     #         
     #         # Compute future value contribution
     #         # FVT1[i,t] = ...
@@ -256,7 +275,7 @@ Estimate structural parameters θ using GLM with offset.
 """
 function estimate_structural_params(df_long::DataFrame, fvt1::Vector)
     # TODO: Add future value to data frame
-    # df_long = @transform(df_long, fv = fvt1)
+    # df_long = @transform(df_long, :fv = fvt1)
     
     # TODO: Estimate structural model
     # theta_hat = glm(@formula(Y ~ Odometer + Branded), 
@@ -297,8 +316,8 @@ function main()
     
     # Step 1: Load and reshape data
     println("\nStep 1: Loading and reshaping data...")
-    url = "YOUR_URL_HERE"  # TODO: Add the correct URL
-    df_long = load_and_reshape_data(url)
+    url = "YOUR_URL_HERE"  # TODO: Add the correct URL (2nd CSV from PS5)
+    df_long, Xstate, Zstate, Branded = load_and_reshape_data(url)
     
     # Step 2: Estimate flexible logit
     println("\nStep 2: Estimating flexible logit...")
@@ -306,7 +325,8 @@ function main()
     
     # Step 3a: Construct state transition matrices
     println("\nStep 3a: Constructing state transition matrices...")
-    # TODO: Reuse code from PS5 to construct xtran
+    # TODO: Reuse code from PS5 to construct xtran and the grids (xbin, zbin, xval, zval)
+
     
     # Step 3b: Construct state space
     println("\nStep 3b: Constructing state space...")
