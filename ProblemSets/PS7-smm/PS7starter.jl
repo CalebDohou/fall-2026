@@ -101,7 +101,7 @@ Returns: negative log-likelihood value
 """
 function mlogit_mle(α, X, y)
     K = size(X, 2)
-    J = length(unique(y))
+    J = length(α) ÷ K + 1  # α has K*(J-1) elements; counts alternatives even if some are never chosen
     N = length(y)
     
     # TODO: Create N×J matrix of choice indicators (bigY)
@@ -137,7 +137,7 @@ This gives K*(J-1) moments for K*(J-1) parameters.
 """
 function mlogit_gmm(α, X, y)
     K = size(X, 2)
-    J = length(unique(y))
+    J = length(α) ÷ K + 1  # α has K*(J-1) elements; counts alternatives even if some are never chosen
     N = length(y)
     
     # TODO: Create choice indicator matrix
@@ -161,10 +161,11 @@ function mlogit_gmm(α, X, y)
     #     end
     # end
     
-    # TODO: Compute objective function J = N * g'g
-    # J = ...
+    # TODO: Compute objective function obj = N * g'g
+    # (don't call it J since we've reserved that for number of alternatives)
+    # obj = ...
     
-    return J
+    return obj
 end
 
 """
@@ -177,7 +178,7 @@ This is over-identified since we only have K*(J-1) parameters.
 """
 function mlogit_gmm_overid(α, X, y)
     K = size(X, 2)
-    J = length(unique(y))
+    J = length(α) ÷ K + 1  # α has K*(J-1) elements; counts alternatives even if some are never chosen
     N = length(y)
     
     # TODO: Create choice indicators
@@ -194,10 +195,11 @@ function mlogit_gmm_overid(α, X, y)
     # This creates an N*J dimensional vector
     # g = bigY[:] .- P[:]
     
-    # TODO: Compute objective J = g'Wg with W = I
-    # J = ...
+    # TODO: Compute objective function obj = N * g'g
+    # (don't call it J since we've reserved that for number of alternatives)
+    # obj = ...
     
-    return J
+    return obj
 end
 
 ################################################################################
@@ -309,7 +311,7 @@ Returns: SMM objective function value
 """
 function mlogit_smm_overid(α, X, y, D)
     K = size(X, 2)
-    J = length(unique(y))
+    J = length(α) ÷ K + 1  # α has K*(J-1) elements; counts alternatives even if some are never chosen
     N = length(y)
     
     # TODO: Create actual choice indicators
@@ -343,10 +345,11 @@ function mlogit_smm_overid(α, X, y, D)
     # TODO: Compute moment vector (actual - simulated frequencies)
     # g = bigY[:] .- bigỸ[:]
     
-    # TODO: Compute objective function
-    # J = ...
+    # TODO: Compute objective function obj = N * g'g
+    # (don't call it J since we've reserved that for number of alternatives)
+    # obj = ...
     
-    return J
+    return obj
 end
 
 ################################################################################
@@ -396,17 +399,20 @@ function main()
     println("Question 2: Multinomial Logit via MLE and GMM")
     println("="^80)
     
-    # TODO: Get starting values from series of binary logits
+    # TODO: Get starting values from a series of LPMs
     # Create dummy variables for each occupation
     # for j = 1:7
     #     tempname = Symbol(string("occ", j))
     #     df[:, tempname] = df.occupation .== j
     # end
     
-    # TODO: Run binary logits for each occupation
+    # TODO: Run LPMs for each occupation
+    # sort of tricky to build the formula correctly (need to use term())
     # svals = zeros(size(X,2), 7)
     # for j = 1:7
-    #     # svals[:,j] = coef(lm(@formula(...), df))
+    #     tempname = Symbol(string("occ", j))
+    #     f = term(tempname) ~ term(:age) + term(:white) + term(:collgrad)
+    #     svals[:,j] = coef(lm(f, df))
     # end
     # Take differences relative to base category
     # svals = svals[:,1:6] .- svals[:,7]
@@ -515,7 +521,8 @@ end
 # - Starting values that are too far from the optimum
 
 # Questions to think about:
-# - Why does GMM give the same answer as MLE for multinomial logit?
+# - Why does just-identified GMM (moments X'(d-P)) give exactly the MLE, while the
+#   over-identified d-P version with W=I (i.e., NLLS) gives estimates that are close but not identical?
 # - What's the advantage of using over-identified moments?
 # - When would SMM be preferred over MLE?
 # - How sensitive are the estimates to starting values?
