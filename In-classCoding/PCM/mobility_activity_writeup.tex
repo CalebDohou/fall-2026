@@ -2,6 +2,7 @@
 \usepackage[margin=1in]{geometry}
 \usepackage{amsmath}
 \usepackage{booktabs}
+\usepackage{upquote}
 \usepackage{hyperref}
 
 \title{In-Class Activity: Residential Mobility Preferences\\\large{Quantile Regression and Bootstrap Inference}}
@@ -20,9 +21,9 @@ Estimate residential mobility preferences using stated-choice experimental data.
 
 This exercise uses data from a Survey of Consumer Expectations (SCE) experiment where respondents evaluated hypothetical residential moves. Each scenario presents three alternatives with varying attributes (housing costs, crime, distance, etc.). The dependent variable is the \textbf{log odds ratio}:
 
-$$\text{ratio}_{ij} = \ln\left(\frac{p_{ij}}{p_{i,\text{stay}}}\right)$$
+$$\text{ratio}_{ij} = \ln\left(\frac{p_{ij}}{p_{i2}}\right), \qquad j \in \{1, 3\}$$
 
-where $p_{ij}$ is the stated probability of choosing alternative $j$ and $p_{i,\text{stay}}$ is the probability of staying.
+where $p_{ij}$ is the stated probability of choosing alternative $j$. Alternative 1 is staying in the current location; alternatives 2 and 3 are moves. Alternative 2 is the base, so each scenario contributes two rows (\texttt{altnum} = 1 and 3), and every attribute is measured as a difference from alternative 2.
 
 \section{Data Structure}
 
@@ -35,8 +36,8 @@ where $p_{ij}$ is the stated probability of choosing alternative $j$ and $p_{i,\
         \item \texttt{income}: Log income differential
         \item \texttt{homecost}: Log housing cost differential
         \item \texttt{crime}: Log crime rate differential
-        \item \texttt{dist}: Distance from current location
-        \item \texttt{moved}: Indicator for having moved
+        \item \texttt{dist}: Differential in distance from current location (hundreds of miles)
+        \item \texttt{moved}: Difference in the move indicator relative to alternative 2 ($-1$ for staying, 0 for the other move)
     \end{itemize}
 \end{itemize}
 
@@ -46,9 +47,9 @@ where $p_{ij}$ is the stated probability of choosing alternative $j$ and $p_{i,\
 
 \textbf{Commands:}
 \begin{verbatim}
-import delimited "https://raw.githubusercontent.com/OU-PhD-
-    Econometrics/fall-2026/master/LectureNotes/11-SubjExp/
-    SCEmobilityExample.csv", clear
+local url "https://raw.githubusercontent.com/OU-PhD-Econometrics"
+local url "`url'/fall-2026/master/LectureNotes/11-SubjExp"
+import delimited "`url'/SCEmobilityExample.csv", clear
 describe
 summarize
 \end{verbatim}
@@ -67,7 +68,7 @@ summarize
 histogram ratio, bin(30)
 \end{verbatim}
 
-\textbf{Interpretation:} The distribution of log odds ratios reveals preference intensity. Values near zero indicate indifference between moving and staying.
+\textbf{Interpretation:} The distribution of log odds ratios reveals preference intensity. Values near zero indicate indifference between alternative $j$ and alternative 2 (for \texttt{altnum} = 1, between staying and moving).
 
 \subsection{Step 3: Basic Quantile Regression}
 
@@ -113,9 +114,9 @@ bootstrap, cluster(scuid) reps(100): qreg ratio income
 
 \subsection{Step 5: Calculate Willingness-to-Pay}
 
-\textbf{WTP formula:} For attribute $x$, willingness-to-pay is:
+\textbf{WTP formula:} Because utility is linear in log income, the amount of income a person would give up to avoid an increase $\Delta x$ in attribute $x$ solves $\beta_{\text{income}}\ln(Y-\text{WTP}_x) = \beta_{\text{income}}\ln Y + \beta_x\Delta x$, so
 
-$$\text{WTP}_x = -\left[\exp\left(-\frac{\beta_x}{\beta_{\text{income}}} \cdot \Delta x\right) - 1\right] \cdot \text{Income}_{\text{median}}$$
+$$\text{WTP}_x = \left[1 - \exp\left(\frac{\beta_x}{\beta_{\text{income}}} \cdot \Delta x\right)\right] \cdot \text{Income}_{\text{median}}$$
 
 where:
 \begin{itemize}
@@ -127,15 +128,15 @@ where:
 \begin{verbatim}
 scalar b_inc = _b[income]
 scalar b_crime = _b[crime]
-scalar wtp_crime = -(exp(-b_crime/b_inc * ln(2)) - 1) * 65000
+scalar wtp_crime = (1 - exp(b_crime/b_inc * ln(2))) * 65000
 display "WTP to avoid doubling crime: $" wtp_crime
 \end{verbatim}
 
 \textbf{Questions:}
 \begin{enumerate}
     \item What is the WTP to avoid a doubling of the crime rate?
-    \item What is the WTP per mile of distance reduction?
-    \item What is the non-pecuniary moving cost?
+    \item What is the WTP to avoid living 100 miles farther away?
+    \item What is the non-pecuniary moving cost (WTP to avoid moving)?
 \end{enumerate}
 
 \subsection{Step 6: Bootstrap WTP Estimates}
@@ -144,9 +145,9 @@ display "WTP to avoid doubling crime: $" wtp_crime
 
 \textbf{Command:}
 \begin{verbatim}
-bootstrap crime_wtp = (-(exp(-_b[crime]/_b[income]*ln(2))-1)*65000)
-         dist_wtp = (-(exp(-_b[dist]/_b[income])-1)*65000)
-         moved_wtp = (-(exp(-_b[moved]/_b[income])-1)*65000),
+bootstrap crime_wtp = ((1-exp(_b[crime]/_b[income]*ln(2)))*65000)
+         dist_wtp = ((1-exp(_b[dist]/_b[income]))*65000)
+         moved_wtp = ((1-exp(_b[moved]/_b[income]))*65000),
          cluster(scuid) reps(100):
     qreg ratio income homecost crime dist family size mvcost 
         taxes norms schqual withincitymove copyhome moved
