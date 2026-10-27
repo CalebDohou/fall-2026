@@ -38,30 +38,34 @@ using FreqTables, Distributions
 \subsection{Load Data and Estimates}
 Use your code from PS4 to load data and define the likelihood function:
 \begin{minted}[bgcolor=bg]{julia}
-Load data (same as PS4)
-url = "https://raw.githubusercontent.com/OU-PhD-Econometrics/
-fall-2026/master/ProblemSets/PS4-mixture/nlsw88t.csv"
+# Load data (same as PS4)
+url = "https://raw.githubusercontent.com/OU-PhD-Econometrics/fall-2026/" *
+      "master/ProblemSets/PS4-mixture/nlsw88t.csv"
 df = CSV.read(HTTP.get(url).body, DataFrame)
 X = [df.age df.white df.collgrad]
 Z = hcat(df.elnwage1, df.elnwage2, df.elnwage3, df.elnwage4,
-df.elnwage5, df.elnwage6, df.elnwage7, df.elnwage8)
+         df.elnwage5, df.elnwage6, df.elnwage7, df.elnwage8)
 y = df.occ_code
-Include your likelihood function from PS4
+
+# Include the PS4 likelihood function: either your own mlogit_with_Z,
+# or the copy in the course repo at LectureNotes/10-Cfl/mlogit_with_Z.jl
 include("mlogit_with_Z.jl")
-Use your PS4 estimates as starting values
+
+# Starting values (these are the PS4 estimates, so the optimizer
+# should converge almost immediately)
 theta_start = [.0403744; .2439942; -1.57132; .0433254; .1468556;
--2.959103; .1020574; .7473086; -4.12005; .0375628;
-.6884899; -3.65577; .0204543; -.3584007; -4.376929;
-.1074636; -.5263738; -6.199197; .1168824; -.2870554;
--5.322248; 1.307477]
+               -2.959103; .1020574; .7473086; -4.12005; .0375628;
+               .6884899; -3.65577; .0204543; -.3584007; -4.376929;
+               .1074636; -.5263738; -6.199197; .1168824; -.2870554;
+               -5.322248; 1.307477]
 \end{minted}
 \subsection{Estimate the Model}
 \begin{minted}[bgcolor=bg]{julia}
-Estimate (same procedure as PS4)
+# Estimate (same procedure as PS4)
 td = TwiceDifferentiable(b -> mlogit_with_Z(b, X, Z, y),
-theta_start; autodiff = Optim.ADTypes.AutoForwardDiff())
+                         theta_start; autodiff = Optim.ADTypes.AutoForwardDiff())
 theta_optim = optimize(td, theta_start, LBFGS(),
-Optim.Options(g_tol = 1e-5, iterations=100_000))
+                       Optim.Options(g_tol = 1e-5, iterations=100_000))
 theta_mle = theta_optim.minimizer
 H = Optim.hessian!(td, theta_mle)
 println("Wage coefficient (gamma): ", round(theta_mle[end], digits=4))
@@ -70,97 +74,100 @@ println("Wage coefficient (gamma): ", round(theta_mle[end], digits=4))
 \subsection{Define Prediction Function}
 \begin{minted}[bgcolor=bg]{julia}
 function plogit(theta, X, Z, J)
-alpha = theta[1:end-1]
-gamma = theta[end]
-K = size(X, 2)
-bigalpha = [reshape(alpha, K, J-1) zeros(K)]
-P = exp.(Xbigalpha .+ Zgamma) ./ sum.(eachrow(exp.(Xbigalpha .+ Zgamma)))
-return P
+    alpha = theta[1:end-1]
+    gamma = theta[end]
+    K = size(X, 2)
+    bigalpha = [reshape(alpha, K, J-1) zeros(K)]
+    P = exp.(X*bigalpha .+ Z*gamma) ./ sum.(eachrow(exp.(X*bigalpha .+ Z*gamma)))
+    return P
 end
 \end{minted}
 \subsection{Compare Model vs Data}
 \begin{minted}[bgcolor=bg]{julia}
-Compute predicted probabilities
+# Compute predicted probabilities
 J = length(unique(y))
 P = plogit(theta_mle, X, Z, J)
-Create comparison table
+
+# Create comparison table (shares in percent)
 modelfit_df = DataFrame(
-occupation = 1:J,
-data_pct = 100 * convert(Array, prop(freqtable(df, :occ_code))),
-model_pct = 100 * vec(mean(P', dims=2))
+    occupation = 1:J,
+    data_pct   = 100 * convert(Array, prop(freqtable(df, :occ_code))),
+    model_pct  = 100 * vec(mean(P, dims=1))
 )
 modelfit_df.difference = modelfit_df.model_pct .- modelfit_df.data_pct
 println("\nModel Fit:")
 println(modelfit_df)
 println("\nMean Absolute Error: ", round(mean(abs.(modelfit_df.difference)), digits=4))
 \end{minted}
-\textbf{Discussion:} How well does the model fit? Which occupations fit best/worst?
+\textbf{Discussion:} How well does the model fit? Which occupations fit best/worst? (Note that $X$ contains no constant. If we added alternative-specific intercepts, the logit first-order conditions would force the model shares to match the data shares exactly.)
 \section{Counterfactual Simulations (20 minutes)}
-Now we'll run three policy experiments:
+Now we'll run three policy experiments. Recall that $Z$ holds \emph{log} wages, so a $p$\% raise is an additive shift of $\log(1+p/100)$, not a multiplication of $Z$.
 \subsection{Counterfactual 1: No Wage Effects}
 \textit{What if people didn't care about wages?}
 \begin{minted}[bgcolor=bg]{julia}
-Set gamma = 0
+# Set gamma = 0
 theta_cfl1 = copy(theta_mle)
 theta_cfl1[end] = 0
 P_cfl1 = plogit(theta_cfl1, X, Z, J)
-modelfit_df.cfl1_pct = 100 * vec(mean(P_cfl1', dims=2))
+modelfit_df.cfl1_pct    = 100 * vec(mean(P_cfl1, dims=1))
 modelfit_df.cfl1_effect = modelfit_df.cfl1_pct .- modelfit_df.model_pct
-modelfit_df.avg_wage = vec(mean(Z', dims=2))
+modelfit_df.avg_lnwage  = vec(mean(Z, dims=1))
 \end{minted}
 \textbf{Task:} Which occupations gain/lose workers? How does this relate to wages?
 \subsection{Counterfactual 2: 10\% Wage Increase}
-\textit{Universal wage increase of 10\%}
+\textit{Universal wage increase of 10\% in every occupation}
 \begin{minted}[bgcolor=bg]{julia}
-Increase all wages by 10%
-Z_cfl2 = Z .* 1.10
+# Increase all wages by 10% (Z is in logs, so add log(1.10))
+Z_cfl2 = Z .+ log(1.10)
 P_cfl2 = plogit(theta_mle, X, Z_cfl2, J)
-modelfit_df.cfl2_pct = 100 * vec(mean(P_cfl2', dims=2))
+modelfit_df.cfl2_pct    = 100 * vec(mean(P_cfl2, dims=1))
 modelfit_df.cfl2_effect = modelfit_df.cfl2_pct .- modelfit_df.model_pct
 \end{minted}
-\textbf{Task:} What happens? Why might effects be small?
+\textbf{Task:} What happens? Why?
 \subsection{Counterfactual 3: Targeted Wage Subsidy}
-\textit{20\% wage increase for low-wage occupations (5-8)}
+\textit{20\% wage increase for the four lowest-paying occupations (4, 6, 7, and 8; check \texttt{avg\_lnwage})}
 \begin{minted}[bgcolor=bg]{julia}
-Target low-wage occupations
+# Target low-wage occupations
+lowwage = [4, 6, 7, 8]
 Z_cfl3 = copy(Z)
-Z_cfl3[:, 5:8] = Z[:, 5:8] .* 1.20
+Z_cfl3[:, lowwage] = Z[:, lowwage] .+ log(1.20)
 P_cfl3 = plogit(theta_mle, X, Z_cfl3, J)
-modelfit_df.cfl3_pct = 100 * vec(mean(P_cfl3', dims=2))
+modelfit_df.cfl3_pct    = 100 * vec(mean(P_cfl3, dims=1))
 modelfit_df.cfl3_effect = modelfit_df.cfl3_pct .- modelfit_df.model_pct
 println("\nCounterfactual Results:")
 println(modelfit_df)
 \end{minted}
-\textbf{Discussion:} Compare all three counterfactuals. Which is most effective? Why?
+\textbf{Discussion:} Compare all three counterfactuals. Which one shifts the occupational distribution the most? Why do the universal and targeted raises have such different effects?
 \section{Bootstrap Confidence Intervals (15 minutes)}
-Quantify uncertainty for Counterfactual 1:
+Quantify uncertainty for Counterfactual 1 with a parametric bootstrap: draw $\theta$ from its estimated asymptotic distribution $N(\hat{\theta}, H^{-1})$ and recompute the counterfactual for each draw.
 \begin{minted}[bgcolor=bg]{julia}
-Parametric bootstrap
+# Parametric bootstrap
 Random.seed!(1234)
 invH = inv(H)
-invH_sym = (invH + invH') / 2
+invH_sym = (invH + invH') / 2   # force exact symmetry for MvNormal
 d = MvNormal(theta_mle, invH_sym)
 B = 1000
 cfl_bs = zeros(J, B)
 println("Running bootstrap...")
 for b = 1:B
-theta_draw = rand(d)
-# Baseline
-P_b = plogit(theta_draw, X, Z, J)
-P_base = 100 * vec(mean(P_b', dims=2))
+    theta_draw = rand(d)
+    # Baseline
+    P_b = plogit(theta_draw, X, Z, J)
+    P_base = 100 * vec(mean(P_b, dims=1))
 
-# Counterfactual
-theta_draw[end] = 0
-P_cfl_b = plogit(theta_draw, X, Z, J)
-P_cfl_draw = 100 * vec(mean(P_cfl_b', dims=2))
+    # Counterfactual
+    theta_draw[end] = 0
+    P_cfl_b = plogit(theta_draw, X, Z, J)
+    P_cfl_draw = 100 * vec(mean(P_cfl_b, dims=1))
 
-cfl_bs[:, b] = P_cfl_draw .- P_base
+    cfl_bs[:, b] = P_cfl_draw .- P_base
 
-if b % 200 == 0
-    println("  $b/$B complete")
+    if b % 200 == 0
+        println("  $b/$B complete")
+    end
 end
-end
-Compute 95% CIs
+
+# Compute 95% CIs (in percentage points, same units as cfl1_effect)
 modelfit_df.ci_lower = [quantile(cfl_bs[j,:], 0.025) for j=1:J]
 modelfit_df.ci_upper = [quantile(cfl_bs[j,:], 0.975) for j=1:J]
 println("\nResults with 95% CIs:")
@@ -171,14 +178,14 @@ println(modelfit_df[:, [:occupation, :cfl1_effect, :ci_lower, :ci_upper]])
 \subsection{Key Takeaways}
 \begin{enumerate}
 \item \textbf{Model fit} validates your model before counterfactuals
-\item \textbf{Counterfactuals} answer policy questions by changing parameters
+\item \textbf{Counterfactuals} answer policy questions by changing parameters (CF 1) or the economic environment (CFs 2--3)
 \item \textbf{Bootstrap} quantifies uncertainty in predictions
 \item \textbf{Assumptions matter}: We assume parameter invariance and partial equilibrium
 \end{enumerate}
 \subsection{Critical Assumptions}
 When running counterfactuals, we assume:
 \begin{itemize}
-    \item Other parameters don't change (e.g., $\beta$'s stay fixed)
+    \item Other parameters don't change (e.g., the $\alpha$'s stay fixed when wages change)
     \item No general equilibrium effects (wages don't adjust)
     \item Model structure remains valid under policy change
 \end{itemize}

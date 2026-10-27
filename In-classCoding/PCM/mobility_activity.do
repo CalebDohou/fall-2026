@@ -2,7 +2,7 @@
 * In-Class Activity: Residential Mobility Preferences
 * Simplified Replication Exercise
 ********************************************************************************
-version 19.5
+version 17
 clear all
 set more off
 
@@ -28,7 +28,9 @@ summarize
 ********************************************************************************
 
 * Count individuals and scenarios
-// may need to -ssc install dinstinct- first!!
+* -distinct- is user-written; install it from SSC if missing
+capture which distinct
+if _rc ssc install distinct
 distinct scuid
 distinct scuid scennum
 distinct scuid blkscen
@@ -102,30 +104,31 @@ scalar b_crime = _b[crime]
 scalar b_dist = _b[dist]
 scalar b_moved = _b[moved]
 
-* WTP formula: -(exp(-beta_x/beta_inc) - 1) * median_income
+* WTP to avoid an increase dx in attribute x (utility is linear in log income):
+*   b_inc*ln(Y - WTP) = b_inc*ln(Y) + b_x*dx  =>  WTP = (1 - exp(b_x*dx/b_inc)) * Y
 * Using median income = $65,000
 scalar medinc = 65000
 
 * Crime WTP (for doubling crime rate: ln(2))
-scalar wtp_crime = -(exp(-b_crime/b_inc * ln(2)) - 1) * medinc
+scalar wtp_crime = (1 - exp(b_crime/b_inc * ln(2))) * medinc
 display "WTP to avoid doubling crime: $" wtp_crime
 
-* Distance WTP (per additional mile)
-scalar wtp_dist = -(exp(-b_dist/b_inc) - 1) * medinc
-display "WTP to reduce distance by 1 mile: $" wtp_dist
+* Distance WTP (dist is in hundreds of miles)
+scalar wtp_dist = (1 - exp(b_dist/b_inc)) * medinc
+display "WTP to avoid living 100 miles farther away: $" wtp_dist
 
 * Moving cost WTP
-scalar wtp_moved = -(exp(-b_moved/b_inc) - 1) * medinc
-display "Non-pecuniary moving cost: $" wtp_moved
+scalar wtp_moved = (1 - exp(b_moved/b_inc)) * medinc
+display "Non-pecuniary moving cost (WTP to avoid moving): $" wtp_moved
 
 ********************************************************************************
 * 6. BOOTSTRAPPED WTP WITH UNCERTAINTY
 ********************************************************************************
 
 * Bootstrap WTP estimates (fewer reps for speed)
-bootstrap crime_wtp = (-(exp(-_b[crime]/_b[income]*ln(2))-1)*65000) ///
-         dist_wtp = (-(exp(-_b[dist]/_b[income])-1)*65000) ///
-         moved_wtp = (-(exp(-_b[moved]/_b[income])-1)*65000), ///
+bootstrap crime_wtp = ((1-exp(_b[crime]/_b[income]*ln(2)))*65000) ///
+         dist_wtp = ((1-exp(_b[dist]/_b[income]))*65000) ///
+         moved_wtp = ((1-exp(_b[moved]/_b[income]))*65000), ///
          cluster(scuid) reps(20): ///
     qreg ratio income homecost crime dist family size mvcost taxes ///
         norms schqual withincitymove copyhome moved
@@ -138,17 +141,17 @@ exit
 ********************************************************************************
 
 * Bootstrap WTP estimates (fewer reps for speed)
-bootstrap crime_wtp = (-(exp(-_b[crime]/_b[income]*ln(2))-1)*65000) ///
-         dist_wtp = (-(exp(-_b[dist]/_b[income])-1)*65000) ///
-         moved_wtp = (-(exp(-_b[moved]/_b[income])-1)*65000), ///
+bootstrap crime_wtp = ((1-exp(_b[crime]/_b[income]*ln(2)))*65000) ///
+         dist_wtp = ((1-exp(_b[dist]/_b[income]))*65000) ///
+         moved_wtp = ((1-exp(_b[moved]/_b[income]))*65000), ///
          cluster(scuid) reps(20): ///
     qreg ratio income homecost crime dist family size mvcost taxes ///
         norms schqual withincitymove copyhome moved if age<40
 
 * Bootstrap WTP estimates (fewer reps for speed)
-bootstrap crime_wtp = (-(exp(-_b[crime]/_b[income]*ln(2))-1)*65000) ///
-         dist_wtp = (-(exp(-_b[dist]/_b[income])-1)*65000) ///
-         moved_wtp = (-(exp(-_b[moved]/_b[income])-1)*65000), ///
+bootstrap crime_wtp = ((1-exp(_b[crime]/_b[income]*ln(2)))*65000) ///
+         dist_wtp = ((1-exp(_b[dist]/_b[income]))*65000) ///
+         moved_wtp = ((1-exp(_b[moved]/_b[income]))*65000), ///
          cluster(scuid) reps(20): ///
     qreg ratio income homecost crime dist family size mvcost taxes ///
         norms schqual withincitymove copyhome moved if age>=40

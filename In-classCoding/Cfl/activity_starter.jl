@@ -17,10 +17,10 @@ Z = hcat(df.elnwage1, df.elnwage2, df.elnwage3, df.elnwage4,
          df.elnwage5, df.elnwage6, df.elnwage7, df.elnwage8)
 y = df.occ_code
 
-# Include likelihood function from PS4
-include("../../ProblemSets/PS4-mixture/PS4_Ransom_source.jl")
+# Include likelihood function from PS4 (or paste in your own mlogit_with_Z)
+include(joinpath(@__DIR__, "../../LectureNotes/10-Cfl/mlogit_with_Z.jl"))
 
-# Starting values
+# Starting values (these are the PS4 estimates)
 θ_start = [.0403744; .2439942; -1.57132; .0433254; .1468556; -2.959103; 
            .1020574; .7473086; -4.12005; .0375628; .6884899; -3.65577; 
            .0204543; -.3584007; -4.376929; .1074636; -.5263738; -6.199197; 
@@ -66,26 +66,27 @@ J = length(unique(y))
 
 # Add to table
 # modelfit_df.cfl1_effect = ...
-# modelfit_df.avg_wage = ...
+# modelfit_df.avg_lnwage = ...
 
 # =============================================================================
 # 4. COUNTERFACTUAL 2: 10% Wage Increase
 # =============================================================================
 
-# Increase all wages by 10%
-# Z_cfl2 = Z .* 1.10
+# Increase all wages by 10% (Z holds log wages, so add log(1.10))
+# Z_cfl2 = Z .+ log(1.10)
 # P_cfl2 = ...
 
 # =============================================================================
 # 5. COUNTERFACTUAL 3: Targeted Subsidy
 # =============================================================================
 
-# 20% increase for occupations 5-8
+# 20% increase for the four lowest-wage occupations
+# lowwage = [4, 6, 7, 8]
 # Z_cfl3 = copy(Z)
-# Z_cfl3[:, 5:8] = ...
+# Z_cfl3[:, lowwage] = ...
 
 # =============================================================================
-# 6. BOOTSTRAP (15 minutes)
+# 6. PARAMETRIC BOOTSTRAP
 # =============================================================================
 
 Random.seed!(1234)
