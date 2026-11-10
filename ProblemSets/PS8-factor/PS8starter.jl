@@ -11,7 +11,7 @@ implementation is left for you to work through.
 
 using Random, LinearAlgebra, Statistics, Distributions
 using Optim, DataFrames, DataFramesMeta, CSV, HTTP, GLM
-using MultivariateStats, FreqTables, ForwardDiff
+using MultivariateStats, FreqTables, ForwardDiff, LineSearches
 
 # Set working directory
 cd(@__DIR__)
@@ -68,18 +68,18 @@ end
 Compute the correlation matrix for the six ASVAB test scores.
 
 # Arguments
-- `df::DataFrame`: Data containing ASVAB scores in the last 6 columns
+- `df::DataFrame`: Data containing the six ASVAB scores
 
 # Returns
 - DataFrame with correlation matrix (6x6)
 
 # Hint
 - The ASVAB scores are in columns: asvabAR, asvabCS, asvabMK, asvabNO, asvabPC, asvabWK
-- These are the last 6 columns of the DataFrame
+- Select these columns by name (e.g. df[:, [:asvabAR, :asvabCS, ...]]) rather than position
 - Use cor() function on the matrix of ASVAB scores
 """
 function compute_asvab_correlations(df::DataFrame)
-    # TODO: Extract the last 6 columns as a matrix
+    # TODO: Extract the six ASVAB columns (by name) as a matrix
     # TODO: Compute correlation matrix using cor()
     # TODO: Return as a formatted DataFrame
     
@@ -133,10 +133,12 @@ Perform PCA on ASVAB scores and include first principal component in regression.
 5. Add PC scores to DataFrame and run regression
 
 # Hints:
-- asvabMat = Matrix(df[:, end-5:end])'  (note the transpose!)
+- asvabMat = Matrix(df[:, [:asvabAR, :asvabCS, :asvabMK, :asvabNO, :asvabPC, :asvabWK]])'
+  (note the transpose!)
 - M = fit(PCA, asvabMat; maxoutdim=1)
 - asvabPCA = MultivariateStats.transform(M, asvabMat)
 - asvabPCA will be 1×N, need to reshape for regression
+- The sign of a principal component is arbitrary, so interpret its coefficient with care
 """
 function estimate_pca_regression(df::DataFrame)
     # TODO: Extract ASVAB matrix and transpose to J×N
@@ -168,6 +170,8 @@ Perform Factor Analysis on ASVAB scores and include first factor in regression.
 
 # Note:
 - Syntax is nearly identical to PCA, just use FactorAnalysis instead
+- Make sure you analyze only the six ASVAB scores. If you added the PCA
+  column to df in Question 4, "the last 6 columns" now includes it!
 """
 function estimate_factor_regression(df::DataFrame)
     # TODO: Follow same steps as PCA but use FactorAnalysis
@@ -212,9 +216,10 @@ Compute the negative log-likelihood for the factor model.
 
 # Arguments
 - `θ`: Parameter vector containing:
-  * γ parameters (L×J matrix, vectorized): coefficients in measurement equations
+  * α parameters (L×J matrix, vectorized): coefficients in measurement equations
   * β parameters (K×1 vector): coefficients in wage equation  
-  * α parameters (J+1 vector): factor loadings (J for measurements, 1 for wage)
+  * γ parameters (J vector): factor loadings in measurement equations
+  * δ parameter (scalar): factor loading in wage equation
   * σ parameters (J+1 vector): standard deviations (J for measurements, 1 for wage)
 - `X`: Wage equation covariates (N×K)
 - `Xfac`: Measurement equation covariates (N×L)
@@ -227,21 +232,21 @@ Compute the negative log-likelihood for the factor model.
 
 # Model Structure:
 ## Measurement equations (for each j=1,...,J):
-   asvab_j = Xfac*γ_j + α_j*ξ + ε_j,  ε_j ~ N(0, σ_j²)
+   asvab_j = Xfac*α_j + γ_j*ξ + ε_j,  ε_j ~ N(0, σ_j²)
 
 ## Wage equation:
-   logwage = X*β + α_{J+1}*ξ + ε,  ε ~ N(0, σ_{J+1}²)
+   logwage = X*β + δ*ξ + ε,  ε ~ N(0, σ_{J+1}²)
 
 ## Latent factor:
    ξ ~ N(0,1)
 
 # Likelihood for person i:
-   L_i = ∫ [∏_j φ((M_ij - Xfac_i*γ_j - α_j*ξ)/σ_j) / σ_j] 
-          × [φ((y_i - X_i*β - α_{J+1}*ξ)/σ_{J+1}) / σ_{J+1}]
+   L_i = ∫ [∏_j φ((M_ij - Xfac_i*α_j - γ_j*ξ)/σ_j) / σ_j] 
+          × [φ((y_i - X_i*β - δ*ξ)/σ_{J+1}) / σ_{J+1}]
           × φ(ξ) dξ
 
 # Key Steps:
-1. Unpack θ into γ, β, α, σ parameters
+1. Unpack θ into α, β, γ, δ, σ parameters
 2. Set up Gauss-Legendre quadrature nodes and weights
 3. For each quadrature point:
    a. Compute likelihood contribution from each measurement equation
@@ -260,9 +265,10 @@ function factor_model(θ::Vector{T}, X::Matrix, Xfac::Matrix, Meas::Matrix,
     N = length(y)       # Number of observations
     
     # TODO: Unpack parameters from θ vector
-    # γ should be L×J matrix (reshape from θ[1:J*L])
+    # α should be L×J matrix (reshape from θ[1:J*L])
     # β should be K×1 vector
-    # α should be (J+1)×1 vector (factor loadings)
+    # γ should be J×1 vector (measurement factor loadings)
+    # δ should be a scalar (wage factor loading)
     # σ should be (J+1)×1 vector (standard deviations)
     
     # TODO: Get quadrature nodes (ξ) and weights (ω) using lgwt()
@@ -274,13 +280,13 @@ function factor_model(θ::Vector{T}, X::Matrix, Xfac::Matrix, Meas::Matrix,
     # TODO: Loop over quadrature points
     for r in 1:R
         # TODO: For each ASVAB test j, compute:
-        # - Residuals: M_ij - Xfac*γ_j - α_j*ξ_r
+        # - Residuals: M_ij - Xfac*α_j - γ_j*ξ_r
         # - Standardize by σ_j
         # - Evaluate normal PDF
         # - Store in Mlike[:,j]
         
         # TODO: For wage equation, compute:
-        # - Residuals: y_i - X*β - α_{J+1}*ξ_r  
+        # - Residuals: y_i - X*β - δ*ξ_r
         # - Standardize by σ_{J+1}
         # - Evaluate normal PDF
         # - Store in Ylike
@@ -320,6 +326,7 @@ function run_estimation(df::DataFrame, start_vals::Vector)
     # Use autodiff = Optim.ADTypes.AutoForwardDiff() for ForwardDiff
     
     # TODO: Optimize using Newton method
+    # e.g. Newton(linesearch = BackTracking())  (BackTracking comes from LineSearches)
     # Optim.Options: set g_tol, iterations, show_trace as appropriate
     
     # TODO: Compute Hessian and standard errors
@@ -419,9 +426,10 @@ function main()
     
     # TODO: Prepare starting values
     # Hint: Can use OLS estimates as starting values:
-    # - For γ: regress each ASVAB on Xfac
+    # - For α: regress each ASVAB on Xfac
     # - For β: regress wage on X
-    # - For α: start with random small values or zeros
+    # - For γ and δ: start with nonzero values (e.g. 0.5); all-zero loadings are a
+    #   stationary point because the likelihood is symmetric in their sign
     # - For σ: start with sample standard deviations or 0.5
     
     println("\nEstimating full factor model...")

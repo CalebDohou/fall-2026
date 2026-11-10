@@ -31,9 +31,10 @@ University of Oklahoma}
 \maketitle
 Directions: Answer all questions. Each student must turn in their own copy, but you may work in groups. You are encouraged to use any and all Artificial Intelligence resources available to you to complete this problem set. Clearly label all answers. Show all of your code. Turn in jl-file(s), output files and writeup via GitHub. Your writeup may simply consist of comments in jl-file(s). If applicable, put the names of all group members at the top of your writeup or jl-file.
 
-You may need to install and load the following package:
+You may need to install and load the following packages:
 \begin{itemize}
  \item[~] \texttt{MultivariateStats}
+ \item[~] \texttt{LineSearches}
 \end{itemize}
 
 You will need to load the following previously installed packages:
@@ -48,6 +49,9 @@ You will need to load the following previously installed packages:
     \item[~] \texttt{DataFramesMeta} 
     \item[~] \texttt{CSV} 
     \item[~] \texttt{MultivariateStats} 
+    \item[~] \texttt{Distributions} 
+    \item[~] \texttt{FreqTables} 
+    \item[~] \texttt{ForwardDiff} 
 \end{itemize}
 \pagebreak
 In this problem set, we will practice estimating models that require dimension reduction of the covariates. These include Principal Components Analysis (PCA) and factor analysis.
@@ -62,19 +66,20 @@ In this problem set, we will practice estimating models that require dimension r
 
 \item Estimate the same regression model as above, but now add the six \texttt{asvab} variables contained in the CSV file. Given your answer from question \#2, do you think it will be problematic to directly include these in the regression?
 
-\item Rather than including a large set of correlated variables, let's instead include the first principle component of this set as one additional regressor in the model from question \#1.
+\item Rather than including a large set of correlated variables, let's instead include the first principal component of this set as one additional regressor in the model from question \#1.
 \begin{itemize}
     \item Use the package \texttt{MultivariateStats}
     \item In this package is a function called \texttt{fit()}
-    \item \texttt{M = fit(PCA, asvabMat; maxoutdim=1)} will give the first principle component, but note that \texttt{asvabMat} needs to be a $J\times N$ matrix, \textbf{not} a $N\times J$ matrix as you would usually use. See the examples at \url{https://multivariatestatsjl.readthedocs.io/en/stable/pca.html} for more details.
-    \item To get the first principle component returned as data, you will need to use
+    \item \texttt{M = fit(PCA, asvabMat; maxoutdim=1)} will give the first principal component, but note that \texttt{asvabMat} needs to be a $J\times N$ matrix, \textbf{not} a $N\times J$ matrix as you would usually use. See the examples at \url{https://juliastats.org/MultivariateStats.jl/stable/pca/} for more details.
+    \item To get the first principal component returned as data, you will need to use
     
     \texttt{asvabPCA = MultivariateStats.transform(M, asvabMat)}.
     
     Again, \texttt{asvabPCA} is a $1 \times N$ array. You will need to reshape this array to add it as a covariate to your regression model.
+    \item The sign of a principal component is arbitrary, so keep this in mind when interpreting its coefficient.
 \end{itemize}
 
-\item Repeat question 4, but use \texttt{FactorAnalysis} instead of \texttt{PCA} (the syntax should be exactly the same)
+\item Repeat question 4, but use \texttt{FactorAnalysis} instead of \texttt{PCA} (the syntax should be exactly the same). Make sure \texttt{asvabMat} contains only the six ASVAB scores: if you added the principal component to your DataFrame in question 4, it is now one of the ``last six columns.'' Selecting the ASVAB columns by name avoids this.
 
 \item Now estimate the full measurement system using either maximum likelihood or simulated method of moments. (You can take your pick, but I recommend using MLE.) 
  
@@ -91,7 +96,7 @@ The likelihood function for each observation of this system of equations is give
 \begin{align}
     \mathcal{L}_i &= \left\{\prod_j \frac{1}{\sigma_j}\phi\left(\frac{M_{ij} - X^m_{i}\alpha_j - \gamma_j \xi_i}{\sigma_j}\right)\right\}\frac{1}{\sigma_w}\phi\left(\frac{y_i - X_{i}\beta - \delta \xi_i}{\sigma_w}\right)
 \end{align}
-where $\phi\left(\cdot\right)$ is the standard normal pdf. $M_j$ is an $N\times 1$ vector of ASVAB scores for ASVAB$_j$. $X^m$ is a matrix with $N$ rows and the following columns: an intercept, and dummies for black, hispanic and female. $y$ is the log wage and $X$ is the $N\times K$ covariate matrix in question \#1. The $\sigma$'s are variance parameters to be estimated.
+where $\phi\left(\cdot\right)$ is the standard normal pdf. $M_j$ is an $N\times 1$ vector of ASVAB scores for ASVAB$_j$. $X^m$ is a matrix with $N$ rows and the following columns: an intercept, and dummies for black, hispanic and female. $y$ is the log wage and $X$ is the $N\times K$ covariate matrix in question \#1. The $\sigma$'s are standard deviation parameters to be estimated.
 
 As mentioned above, $\xi_i$ is a random factor that is distributed standard normal. Because it is unobserved, we will need to integrate it out of the likelihood function. Thus, the log likelihood function for the model is
 \begin{align}
